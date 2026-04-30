@@ -7,6 +7,23 @@ import { ScrapedJobType } from "@Server/types/job";
 import { SingleBid } from "@Server/models/BidHistory";
 import * as bidHistoryController from "@Server/controller/bidHistoryController";
 
+function pickCwString(v: unknown): string {
+    if (typeof v !== "string") return "";
+    return v.trim();
+}
+
+/** CW profile may store account fields as camelCase (Mongoose) or legacy snake_case. */
+function cwAccountFieldsFromProfile(profile: Record<string, unknown>): {
+    account_id: string;
+    account_url: string;
+} {
+    const account_id =
+        pickCwString(profile.accountId) || pickCwString(profile.account_id);
+    const account_url =
+        pickCwString(profile.accountLink) || pickCwString(profile.account_link);
+    return { account_id, account_url };
+}
+
 export interface PlaceBidParams {
     jobType?: 'hourly' | 'fixed_price';
     hours_limit: number,
@@ -80,9 +97,13 @@ export interface AutoBidResult {
     bidData?: any;
 }
 
-const BID_REPORT_API_URL = process.env.BID_REPORT_API_URL || "";
+const BID_REPORT_API_URL =
+    process.env.BID_REPORT_API_URL ?? "https://bid-server.vercel.app/api/bids";
+const BID_RANKS_API_URL =
+    process.env.BID_RANKS_API_URL || "http://213.210.13.163:3003/api/bid-ranks";
 
-interface BidReportPayload {
+/** Payload for the external bid reporting API (sent after each `placeBid` attempt). */
+export interface BidReportPayload {
     platform: "crowdworks";
     account_id: string;
     account_url: string;
@@ -91,11 +112,55 @@ interface BidReportPayload {
     bid_content: string;
     budget: string;
     bid_time: string;
+    /** Bid position on the job (from bid-ranks API); omitted if unavailable. */
+    bid_place_number?: number;
 }
 
-async function sendBidReport(payload: BidReportPayload): Promise<void> {
+/**
+ * Returns the user's bid rank on the job page.
+ * Request `userId` is the CW account id from the profile; the response object is keyed by that same id.
+ * `null` if the request fails or rank is missing.
+ */
+export async function fetchBidPlaceNumber(
+    jobUrl: string,
+    userId: string
+): Promise<number | null> {
+    const uid = userId.trim();
+    if (!uid) return null;
+
+    try {
+        const response = await axios.post<Record<string, unknown>>(
+            BID_RANKS_API_URL,
+            { jobUrl, userId: uid },
+            {
+                timeout: 60000,
+                headers: { "Content-Type": "application/json" },
+                validateStatus: (status: number) => status >= 200 && status < 300,
+            }
+        );
+        const data = response.data;
+        if (!data || typeof data !== "object") return null;
+        const raw = (data as Record<string, unknown>)[uid];
+        if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+        if (typeof raw === "string" && raw.trim() !== "") {
+            const n = Number(raw);
+            if (Number.isFinite(n)) return n;
+        }
+        return null;
+    } catch (error: any) {
+        console.error("[BidRanks] Failed to fetch bid place:", {
+            message: error?.message,
+            status: error?.response?.status,
+            data: error?.response?.data,
+        });
+        return null;
+    }
+}
+
+/** POSTs bid metadata to `BID_REPORT_API_URL` (JSON). No-op if `BID_REPORT_API_URL` is set to empty string. */
+export async function sendBidReport(payload: BidReportPayload): Promise<void> {
     if (!BID_REPORT_API_URL) {
-        console.warn("BID_REPORT_API_URL is not set. Skipping bid report.");
+        console.warn("BID_REPORT_API_URL is empty. Skipping bid report.");
         return;
     }
 
@@ -137,6 +202,15 @@ export async function singleAutoBid(telegramId: number, jobId: number): Promise<
     const profile = await CwProfileModel.findOne({ telegramId, authStatus: true }).lean();
     if (!profile || !profile.auth_token || !profile.cookie) {
         return { success: false, message: "❌ CW not configured. Please register valid CW credentials in the dashboard." };
+    }
+
+    const { account_id: reportAccountId, account_url: reportAccountUrl } =
+        cwAccountFieldsFromProfile(profile as Record<string, unknown>);
+    const rankUserId = reportAccountId;
+    if (!rankUserId) {
+        console.warn(
+            `[BidRanks] CW profile for telegramId ${telegramId} has no accountId; bid rank and bid_place_number may be unavailable.`
+        );
     }
 
     const autoBidSchedule = await AutoBidSchedule.findOne({ telegramId }).lean();
@@ -182,15 +256,20 @@ export async function singleAutoBid(telegramId: number, jobId: number): Promise<
     const submit = await placeBid(bidData as PlaceBidParams);
     const suggestedBudget = (budget) ? budget : (bidData?.defaultHourlyPrice ?? 0);
 
+    const jobUrl = `https://crowdworks.jp/public/jobs/${job.id}`;
+    const bidPlaceNumber =
+        rankUserId ? (await fetchBidPlaceNumber(jobUrl, rankUserId)) : null;
+
     await sendBidReport({
         platform: "crowdworks",
-        account_id: (profile.accountId || "").trim(),
-        account_url: (profile.accountLink || "").trim(),
+        account_id: reportAccountId,
+        account_url: reportAccountUrl,
         job_id: String(job.id),
-        job_url: `https://crowdworks.jp/public/jobs/${job.id}`,
+        job_url: jobUrl,
         bid_content: bidText,
         budget: String(suggestedBudget),
         bid_time: new Date().toISOString(),
+        ...(bidPlaceNumber !== null ? { bid_place_number: bidPlaceNumber } : {}),
     });
 
     if (submit.success) {

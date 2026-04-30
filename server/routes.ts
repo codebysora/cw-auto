@@ -90,7 +90,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create CW profile
   app.post("/api/cw-profiles", requireAuth, async (req: any, res: Response) => {
     try {
-      const data = insertCwProfileSchema.parse(req.body);
+      const merged = {
+        ...req.body,
+        ...cwProfileController.normalizeCwProfileUpdates(req.body as Record<string, unknown>),
+      };
+      const data = insertCwProfileSchema.parse(merged);
       const profile = await cwProfileController.createCwProfile(req.telegramId, data);
       res.json({ data: profile });
     } catch (error: any) {

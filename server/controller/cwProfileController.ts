@@ -5,6 +5,30 @@ import { authenticateCrowdworks } from "./authController";
 import UserModel from "../models/User";
 import mongoose from "mongoose";
 
+function pickNonEmptyString(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  return t === "" ? undefined : t;
+}
+
+/** Merge camelCase + snake_case account fields; drop telegramId so PATCH cannot overwrite the indexed telegramId in Mongo. */
+export function normalizeCwProfileUpdates(updates: Record<string, unknown>): Partial<InsertCwProfile> {
+  const { telegramId: _omitTelegram, ...rest } = updates;
+  const accountId =
+    pickNonEmptyString(rest.accountId) ?? pickNonEmptyString(rest.account_id);
+  const accountLink =
+    pickNonEmptyString(rest.accountLink) ?? pickNonEmptyString(rest.account_link);
+
+  const merged = { ...rest } as Record<string, unknown>;
+  delete merged.account_id;
+  delete merged.account_link;
+
+  if (accountId !== undefined) merged.accountId = accountId;
+  if (accountLink !== undefined) merged.accountLink = accountLink;
+
+  return merged as Partial<InsertCwProfile>;
+}
+
 export const getCwProfiles = async (telegramId: number) => {
   const profile = await CwProfileModel.findOne({ telegramId }).lean();
   return profile ? [profile] : []; // Return array with single profile or empty array
@@ -60,38 +84,40 @@ export const createCwProfile = async (telegramId: number, data: InsertCwProfile)
 };
 
 export const updateCwProfile = async (telegramId: number, updates: Partial<InsertCwProfile>) => {
+  const clean = normalizeCwProfileUpdates(updates as Record<string, unknown>);
+
   // If password is being updated, re-authenticate
-  if (updates.cwPassword) {
+  if (clean.cwPassword) {
     const existingProfile = await CwProfileModel.findOne({ telegramId });
     if (!existingProfile) {
       throw new Error("Profile not found");
     }
 
     // Use updated email when provided, otherwise keep existing one.
-    const emailForAuth = (updates.cwEmail && updates.cwEmail.trim())
-      ? updates.cwEmail.trim()
+    const emailForAuth = (clean.cwEmail && clean.cwEmail.trim())
+      ? clean.cwEmail.trim()
       : existingProfile.cwEmail;
-    const authResult = await authenticateCrowdworks(emailForAuth, updates.cwPassword);
+    const authResult = await authenticateCrowdworks(emailForAuth, clean.cwPassword);
 
-  const updateData = {
-    ...updates,
-    auth_token: authResult.auth_token || null,
-    cookie: authResult.cookie || null,
-    lastAuthAt: authResult.success ? new Date() : null,
-    authStatus: (authResult.auth_token != null && authResult.cookie != null),
-  };
+    const updateData = {
+      ...clean,
+      auth_token: authResult.auth_token || null,
+      cookie: authResult.cookie || null,
+      lastAuthAt: authResult.success ? new Date() : null,
+      authStatus: (authResult.auth_token != null && authResult.cookie != null),
+    };
 
-  const profile = await CwProfileModel.findOneAndUpdate(
-    { telegramId },
-    updateData,
-    { new: true }
-  ).lean();
+    const profile = await CwProfileModel.findOneAndUpdate(
+      { telegramId },
+      updateData,
+      { new: true }
+    ).lean();
 
-  if (!profile) {
-    throw new Error("Profile not found");
-  }
+    if (!profile) {
+      throw new Error("Profile not found");
+    }
 
-  return { ...profile, authMessage: authResult.message };
+    return { ...profile, authMessage: authResult.message };
   }
 
   // Update non-password fields
@@ -101,7 +127,7 @@ export const updateCwProfile = async (telegramId: number, updates: Partial<Inser
   }
 
   const updateData = {
-    ...updates,
+    ...clean,
     authStatus: (existingProfile.auth_token != null && existingProfile.cookie != null),
   };
 
