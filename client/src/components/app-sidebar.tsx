@@ -107,6 +107,8 @@ interface AppSidebarProps {
 export function AppSidebar({ isAdmin = false }: AppSidebarProps) {
   const [location, setLocation] = useLocation();
   const { user, logout } = useAuth();
+  const isUserAdmin =
+    user?.role === "admin" || user?.role === "superadmin";
   const menuItems = isAdmin ? adminMenuItems : userMenuItems;
 
   const handleLogout = () => {
@@ -156,6 +158,32 @@ export function AppSidebar({ isAdmin = false }: AppSidebarProps) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {!isAdmin && isUserAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Admin</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminMenuItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url}
+                      data-testid={`button-sidebar-admin-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      <Link href={item.url}>
+                        <div className="flex items-center gap-3">
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </div>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-4">

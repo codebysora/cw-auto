@@ -19,6 +19,7 @@ import * as promptController from "./controller/promptController";
 import * as pastWorkController from "./controller/pastWorkController";
 import * as jobController from "./controller/jobController";
 import * as blockedClientController from "./controller/blockedClientController";
+import UserModel from "./models/User";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const requireAuth = (req: any, res: any, next: any) => {
@@ -33,7 +34,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const requireAdmin = (req: any, res: any, next: any) => {
-    next();
+    (async () => {
+      try {
+        const adminId = process.env.ADMIN_ID ? String(process.env.ADMIN_ID) : "";
+        const tid = req.telegramId != null ? String(req.telegramId) : "";
+        if (adminId && tid && adminId === tid) return next();
+
+        const user = await UserModel.findOne({ telegramId: req.telegramId }).lean();
+        const role = (user as any)?.role;
+        if (role === "admin" || role === "superadmin") return next();
+
+        return res.status(403).json({ error: "Admin only" });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || "Admin check failed" });
+      }
+    })();
   };
 
   // ==================== User Routes ====================

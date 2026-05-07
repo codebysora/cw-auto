@@ -7,6 +7,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { DashboardLayout } from "@/components/dashboard-layout";
 import { AuthGuard } from "@/components/auth-guard";
+import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 
 // Lazy load pages for better code splitting
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -31,6 +33,20 @@ const PageLoader = () => (
     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
   </div>
 );
+
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  const isAdmin = user?.role === "admin" || user?.role === "superadmin";
+
+  React.useEffect(() => {
+    if (!isLoading && !isAdmin) setLocation("/dashboard");
+  }, [isLoading, isAdmin, setLocation]);
+
+  if (!isAdmin) return null;
+  return <>{children}</>;
+}
 
 function Router() {
   return (
@@ -135,36 +151,44 @@ function Router() {
         <Route path="/admin">
           {() => (
             <AuthGuard>
-              <DashboardLayout isAdmin>
-                <AdminDashboard />
-              </DashboardLayout>
+              <AdminGuard>
+                <DashboardLayout isAdmin>
+                  <AdminDashboard />
+                </DashboardLayout>
+              </AdminGuard>
             </AuthGuard>
           )}
         </Route>
         <Route path="/admin/users">
           {() => (
             <AuthGuard>
-              <DashboardLayout isAdmin>
-                <UserManagement />
-              </DashboardLayout>
+              <AdminGuard>
+                <DashboardLayout isAdmin>
+                  <UserManagement />
+                </DashboardLayout>
+              </AdminGuard>
             </AuthGuard>
           )}
         </Route>
         <Route path="/admin/analytics">
           {() => (
             <AuthGuard>
-              <DashboardLayout isAdmin>
-                <AdminAnalytics />
-              </DashboardLayout>
+              <AdminGuard>
+                <DashboardLayout isAdmin>
+                  <AdminAnalytics />
+                </DashboardLayout>
+              </AdminGuard>
             </AuthGuard>
           )}
         </Route>
         <Route path="/admin/blocked-clients">
           {() => (
             <AuthGuard>
-              <DashboardLayout isAdmin>
-                <BlockedClients />
-              </DashboardLayout>
+              <AdminGuard>
+                <DashboardLayout isAdmin>
+                  <BlockedClients />
+                </DashboardLayout>
+              </AdminGuard>
             </AuthGuard>
           )}
         </Route>

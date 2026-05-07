@@ -1,7 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import Job from "@Server/models/Job";
-import { scrapeJobs } from "@Server/service/Scraper";
+import { scrapeJobs } from "@Server/service/scraper";
 import { delay } from "@Server/utils";
 import { sendMessage } from "@Server/telegram";
 import { getBidInlineKeyboard, getCurrentDayName, getCurrentDateYYYYMMDD, getCurrentTimeHHMM, getJobMessage } from "../service/function";
@@ -58,7 +58,7 @@ const getAvailableTgIds = async (job: ScrapedJobType) => {
     ...addedQuery,
   }).select('telegramId');
 
-  return availableTgIds.map(schedule => schedule.telegramId);
+  return availableTgIds.map((schedule: { telegramId: number }) => schedule.telegramId);
 };
 
 // Rate limiting: Track last bid time per telegramId (1 bid per minute)
@@ -122,12 +122,56 @@ export const bidProcessor = (telegramIds: number[], job: ScrapedJobType) => {
 
 let jobBunddle: any = [];
 
-/** Post to Telegram only: fixed jobs with min budget >= 50000, all hourly, and all no-budget jobs */
+function envNumber(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || String(raw).trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function jobBudgetRange(job: ScrapedJobType): { low: number; high: number; noBudget: boolean } {
+  const low = Number(job.lowBudget ?? 0) || 0;
+  const high = Number(job.highBudget ?? 0) || 0;
+  return { low, high, noBudget: low === 0 && high === 0 };
+}
+
+function isInRange(
+  jobLow: number,
+  jobHigh: number,
+  min: number,
+  max: number
+): boolean {
+  // If only one side exists, treat it as a point value.
+  const low = jobLow || jobHigh;
+  const high = jobHigh || jobLow;
+  if (!low && !high) return false;
+  return low <= max && high >= min; // overlap check
+}
+
+/**
+ * Telegram notify condition:
+ * - Always notify for no-budget jobs
+ * - Hourly jobs: notify only if budget range overlaps [TG_NOTIFY_HOURLY_MIN, TG_NOTIFY_HOURLY_MAX]
+ * - Fixed jobs: notify only if budget range overlaps [TG_NOTIFY_FIXED_MIN, TG_NOTIFY_FIXED_MAX]
+ *
+ * Env defaults preserve prior behavior: hourly = always, fixed = lowBudget >= 200000.
+ */
 function shouldPostJobToTelegram(job: ScrapedJobType): boolean {
-  const noBudget = job.lowBudget === 0 && job.highBudget === 0;
+  const { low, high, noBudget } = jobBudgetRange(job);
   if (noBudget) return true;
-  if (job.jobType === "hourly") return true;
-  if (job.jobType === "fixed") return (job.lowBudget ?? 0) >= 200000;
+
+  if (job.jobType === "hourly") {
+    const min = envNumber("TG_NOTIFY_HOURLY_MIN", 0);
+    const max = envNumber("TG_NOTIFY_HOURLY_MAX", Number.POSITIVE_INFINITY);
+    return isInRange(low, high, min, max);
+  }
+
+  if (job.jobType === "fixed") {
+    const min = envNumber("TG_NOTIFY_FIXED_MIN", 200000);
+    const max = envNumber("TG_NOTIFY_FIXED_MAX", Number.POSITIVE_INFINITY);
+    return isInRange(low, high, min, max);
+  }
+
   return false;
 }
 
@@ -144,11 +188,6 @@ export const startScraping = (intervalMs: number = 5000) => {
       if (Array.isArray(newJobs) && newJobs.length > 0) {
         for (let i = 0; i < newJobs.length; i++) {
           let job = newJobs[i];
-
-          if (blockedIds.has(Number(job.clientId))) {
-            console.log(`Skipping job ${job.id} - client ${job.clientId} is blocked`);
-            continue;
-          }
           
           const existing = await Job.findOne({ id: job.id });
           if (existing) continue;
@@ -158,8 +197,16 @@ export const startScraping = (intervalMs: number = 5000) => {
 
           new Job(job).save().then();
 
+          const isBlockedClient = blockedIds.has(Number(job.clientId));
+          if (isBlockedClient) {
+            console.log(
+              `Blocked client ${job.clientId}: saved job ${job.id} to DB, skipping Telegram notify/auto-bid`
+            );
+            continue;
+          }
+
           if (shouldPostJobToTelegram(job)) {
-            // await postJobToTelegramGroup(job);
+            await postJobToTelegramGroup(job);
             const availableTgIds = await getAvailableTgIds(job);
             console.log(availableTgIds, job.id, 'availableTgIds', i + 1, '/', newJobs.length);
             if (availableTgIds.length > 0) {
