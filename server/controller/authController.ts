@@ -98,6 +98,37 @@ export const updateUser = async (telegramId: string, updates: Partial<InsertUser
   return user;
 };
 
+const ADMIN_USER_PATCH_FIELDS = new Set([
+  "status",
+  "role",
+  "fullName",
+  "email",
+  "telegramUsername",
+  "age",
+  "birthday",
+  "avatarUrl",
+]);
+
+/** Update by app user `id` (UUID). Used by admin panel; only whitelisted fields are applied. */
+export const updateUserById = async (id: string, updates: Partial<InsertUser>) => {
+  const payload: Record<string, unknown> = {};
+  for (const key of Object.keys(updates || {})) {
+    if (ADMIN_USER_PATCH_FIELDS.has(key)) {
+      (payload as any)[key] = (updates as any)[key];
+    }
+  }
+  if (Object.keys(payload).length === 0) {
+    const existing = await UserModel.findOne({ id }).lean();
+    if (!existing) throw new Error("User not found");
+    return existing;
+  }
+  const user = await UserModel.findOneAndUpdate({ id }, payload, { new: true }).lean();
+  if (!user) {
+    throw new Error("User not found");
+  }
+  return user;
+};
+
 export const getAllUsers = async () => {
   return await UserModel.find({}).lean();
 };

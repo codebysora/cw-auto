@@ -109,7 +109,6 @@ export function AppSidebar({ isAdmin = false }: AppSidebarProps) {
   const { user, logout } = useAuth();
   const isUserAdmin =
     user?.role === "admin" || user?.role === "superadmin";
-  const menuItems = isAdmin ? adminMenuItems : userMenuItems;
 
   const handleLogout = () => {
     logout();
@@ -135,11 +134,37 @@ export function AppSidebar({ isAdmin = false }: AppSidebarProps) {
       </SidebarHeader>
 
       <SidebarContent>
+        {isAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>User app</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {userMenuItems.map((item) => (
+                  <SidebarMenuItem key={`user-${item.title}`}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url}
+                      data-testid={`button-sidebar-user-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      <Link href={item.url}>
+                        <div className="flex items-center gap-3">
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </div>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         <SidebarGroup>
-          <SidebarGroupLabel>{isAdmin ? "Admin Menu" : "Menu"}</SidebarGroupLabel>
+          <SidebarGroupLabel>{isAdmin ? "Admin" : "Menu"}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => (
+              {(isAdmin ? adminMenuItems : userMenuItems).map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild

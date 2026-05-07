@@ -2,12 +2,14 @@ import mongoose, { Document } from "mongoose";
 
 export interface BlockedClientDocument extends Document {
   clientId: number;
+  clientName?: string;
   createdAt: Date;
 }
 
 const BlockedClientSchema = new mongoose.Schema<BlockedClientDocument>(
   {
     clientId: { type: Number, required: true, unique: true },
+    clientName: { type: String, default: "" },
     createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

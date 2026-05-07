@@ -19,6 +19,7 @@ import * as promptController from "./controller/promptController";
 import * as pastWorkController from "./controller/pastWorkController";
 import * as jobController from "./controller/jobController";
 import * as blockedClientController from "./controller/blockedClientController";
+import * as adminController from "./controller/adminController";
 import UserModel from "./models/User";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -314,6 +315,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== Admin Routes ====================
 
+  app.get("/api/admin/overview", requireAuth, requireAdmin, async (_req: any, res: Response) => {
+    try {
+      const data = await adminController.getAdminOverview();
+      res.json({ data });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to load admin overview" });
+    }
+  });
+
   // Blocked clients (admin only) - block client IDs so their jobs are not scraped/saved
   app.get("/api/admin/blocked-clients", requireAuth, requireAdmin, async (_req: any, res: Response) => {
     try {
@@ -367,7 +377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/users/:id", requireAuth, requireAdmin, async (req: any, res: Response) => {
     try {
       const { id } = req.params;
-      const user = await authController.updateUser(id, req.body);
+      const user = await authController.updateUserById(id, req.body);
       res.json({ ...user, password: undefined });
     } catch (error: any) {
       res.status(404).json({ error: error.message || "User not found" });

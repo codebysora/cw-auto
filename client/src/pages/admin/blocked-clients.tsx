@@ -11,7 +11,7 @@ const CW_EMPLOYER_URL = "https://crowdworks.jp/public/employers/";
 export default function BlockedClients() {
   const { user, telegramUser } = useAuth();
   const telegramId = telegramUser?.id ?? (user as any)?.telegramId ?? (user as any)?.id;
-  const [list, setList] = useState<{ clientId: number; createdAt: string }[]>([]);
+  const [list, setList] = useState<{ clientId: number; clientName?: string; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [addValue, setAddValue] = useState("");
   const [adding, setAdding] = useState(false);
@@ -77,7 +77,7 @@ export default function BlockedClients() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Blocked Clients</h1>
         <p className="text-muted-foreground">
-          Block client IDs so their projects are not scraped or saved to the database. Add the client ID or employer URL (e.g. {CW_EMPLOYER_URL}6798718 → 6798718).
+          Block CrowdWorks client IDs: their jobs are still saved to the database, but Telegram notify and auto-bid are skipped. Add the numeric client ID or employer URL (e.g. {CW_EMPLOYER_URL}6798718).
         </p>
       </div>
 
@@ -114,7 +114,7 @@ export default function BlockedClients() {
             <Ban className="h-4 w-4" />
             Blocked list
           </CardTitle>
-          <CardDescription>These clients’ jobs will not be scraped or saved</CardDescription>
+          <CardDescription>Jobs from these clients are stored but not announced or auto-bid</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -130,13 +130,19 @@ export default function BlockedClients() {
                   key={item.clientId}
                   className="flex items-center justify-between rounded-lg border px-4 py-3"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono font-medium">{item.clientId}</span>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {item.clientName?.trim() || `Client ${item.clientId}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground font-mono">ID: {item.clientId}</p>
+                    </div>
                     <a
                       href={`${CW_EMPLOYER_URL}${item.clientId}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-muted-foreground hover:text-foreground"
+                      title="Open employer page"
                     >
                       <ExternalLink className="h-4 w-4" />
                     </a>

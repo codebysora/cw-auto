@@ -149,12 +149,11 @@ function isInRange(
 }
 
 /**
- * Telegram notify condition:
- * - Always notify for no-budget jobs
- * - Hourly jobs: notify only if budget range overlaps [TG_NOTIFY_HOURLY_MIN, TG_NOTIFY_HOURLY_MAX]
- * - Fixed jobs: notify only if budget range overlaps [TG_NOTIFY_FIXED_MIN, TG_NOTIFY_FIXED_MAX]
- *
- * Env defaults preserve prior behavior: hourly = always, fixed = lowBudget >= 200000.
+ * Telegram notify condition.
+ * Default: notify ALL jobs (no min/max filter, no-budget jobs included).
+ * Optional ranges via env:
+ *   TG_NOTIFY_HOURLY_MIN / TG_NOTIFY_HOURLY_MAX
+ *   TG_NOTIFY_FIXED_MIN  / TG_NOTIFY_FIXED_MAX
  */
 function shouldPostJobToTelegram(job: ScrapedJobType): boolean {
   const { low, high, noBudget } = jobBudgetRange(job);
@@ -167,12 +166,12 @@ function shouldPostJobToTelegram(job: ScrapedJobType): boolean {
   }
 
   if (job.jobType === "fixed") {
-    const min = envNumber("TG_NOTIFY_FIXED_MIN", 200000);
+    const min = envNumber("TG_NOTIFY_FIXED_MIN", 0);
     const max = envNumber("TG_NOTIFY_FIXED_MAX", Number.POSITIVE_INFINITY);
     return isInRange(low, high, min, max);
   }
 
-  return false;
+  return true;
 }
 
 export const startScraping = (intervalMs: number = 5000) => {
@@ -213,7 +212,7 @@ export const startScraping = (intervalMs: number = 5000) => {
               bidProcessor(availableTgIds, job); // Non-blocking - adds to queue
             }
           } else {
-            console.log(`Skipping Telegram post for job ${job.id} - fixed with budget < 50000`);
+            console.log(`Skipping Telegram post for job ${job.id} - outside notify range`);
           }
         }
       }
